@@ -23,51 +23,28 @@ public class Client implements Initializable {
     public TextField serverPath;
     public TextField clientPath;
 
-    private byte[] buffer;
-    private final int BUFFER_SIZE = 256;
+    private byte[] buf;
 
-    private Path clientFilesDir;
-    private Socket socket;
+    private Path clientDir;
     private DataInputStream is;
     private DataOutputStream os;
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
         try {
-            buffer = new byte[BUFFER_SIZE];
-            clientFilesDir = Paths.get("D:\\");
+            buf = new byte[BUFFER_SIZE];
+            clientDir = Paths.get("D:\\");
+            clientPath.setText(clientDir.toString());
                     //(System.getProperty("user.home")); //—сылка на домашнюю директорию
             updateClientView();
-            socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
+            Socket socket = new Socket(SERVER_ADDRESS, SERVER_PORT);
             System.out.println("Network created...");
             is = new DataInputStream(socket.getInputStream());
             os = new DataOutputStream(socket.getOutputStream());
-            Thread readThread = new Thread(() -> readLoop());
-//            readThread.setDaemon(true);
-//            readThread.start();
-            //Thread writeThread = new Thread(() -> uploadFile(filePathTest));
-            //writeThread.start();
+            Thread readThread = new Thread(this::readLoop);
+            readThread.setDaemon(true);
+            readThread.start();
         } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            closeConnection();
-        }
-    }
-
-    private void closeConnection() {
-        try {
-            os.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        try {
-            is.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        try {
-            socket.close();
-        } catch (IOException e) {
             e.printStackTrace();
         }
     }
@@ -77,8 +54,9 @@ public class Client implements Initializable {
             while (true) {
                 String command = is.readUTF();
                 System.out.println("Recieved: " + command);
-                if (command.equals(FILE_LIST)) {
+                if (command.equals(FILES_LIST)) {
                     Platform.runLater(() -> serverView.getItems().clear());
+                    serverPath.setText(is.readUTF());
                     int filesCount = is.readInt();
                     for (int i = 0; i < filesCount; i++) {
                         String fileName = is.readUTF(); //можно собрать в лист и отсортировать по имени и типу (папка и файл)
@@ -86,11 +64,12 @@ public class Client implements Initializable {
                     }
                 } else if (command.equals(UPLOAD_FILE)) {
                     String fileName = is.readUTF();
+                    System.out.println("Recieved: " + fileName);
                     long fileSize = is.readLong();
-                    try (OutputStream fos = new FileOutputStream(clientFilesDir.resolve(fileName).toFile())) {
+                    try (OutputStream fos = new FileOutputStream(clientDir.resolve(fileName).toFile())) {
                         for (int i = 0; i < (fileSize + BUFFER_SIZE - 1) / BUFFER_SIZE; i++) {
-                            int readBytes = is.read(buffer);
-                            fos.write(buffer, 0 , readBytes);
+                            int readBytes = is.read(buf);
+                            fos.write(buf, 0 , readBytes);
                         }
                     }
                     Platform.runLater(this::updateClientView);
@@ -104,24 +83,36 @@ public class Client implements Initializable {
     private void updateClientView() {
         try {
             clientView.getItems().clear();
-            Files.list(clientFilesDir)
-                    .map(path -> path.getFileName().toString())
-                    .forEach(file -> clientView.getItems().add(file));
+            Files.list(clientDir)
+                    .map(p -> p.getFileName().toString())
+                    .forEach(f -> clientView.getItems().add(f));
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-
     public void uploadFile(ActionEvent actionEvent) throws IOException {
         String fileName = clientView.getSelectionModel().getSelectedItem();
         os.writeUTF(UPLOAD_FILE);
         os.writeUTF(fileName);
-        Path file = clientFilesDir.resolve(fileName);
+        Path file = clientDir.resolve(fileName);
         long fileSize = Files.size(file);
-        byte[] fileBytes = Files.readAllBytes(file);
         os.writeLong(fileSize);
-        os.write(fileBytes);
+        byte[] bytes;
+        if (fileSize > MAX_ARRAY_SIZE) {
+            bytes = new byte[MAX_ARRAY_SIZE];
+            try  (InputStream fis = new FileInputStream(file.toFile())) {
+                for (int i = 0; i < (fileSize + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE; i++) {
+                    int readBytes = fis.read(bytes);
+                    os.write(bytes, 0, readBytes);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            bytes = Files.readAllBytes(file);
+            os.write(bytes);
+        }
         os.flush();
     }
 
@@ -130,5 +121,11 @@ public class Client implements Initializable {
         os.writeUTF(DOWNLOAD_FILE);
         os.writeUTF(fileName);
         os.flush();
+    }
+
+    public void clientFolderUp(ActionEvent actionEvent) {
+    }
+
+    public void serverFolderUp(ActionEvent actionEvent) {
     }
 }

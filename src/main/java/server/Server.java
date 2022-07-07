@@ -1,6 +1,5 @@
 package server;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -15,8 +14,7 @@ public class Server {
                 System.out.println("Waiting for a client...");
                 Socket socket = server.accept();
                 System.out.println("New client connected...");
-                new ClientHandler(socket);
-                //new Thread((new ClientHandler(socket))).start();
+                new Thread((new ClientHandler(socket))).start();
             }
         } catch (IOException e) {
             e.printStackTrace();
